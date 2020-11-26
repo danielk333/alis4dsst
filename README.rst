@@ -7,51 +7,22 @@ Using the orbit determination
 
     #!/usr/bin/env python
 
-    import numpy as np
-    import pyorb
+    import matplotlib.pyplot as plt
+    import alis4dsst as a4
 
-    import sorts
-    from sorts.propagator import SGP4
+    sources, time0, state0 = a4.io.load_track('Sat_coord_20200401T195000b.mat', 1, 1)
+    fig, ax = a4.plots.track(sources)
 
-    eiscat3d = sorts.radars.eiscat3d
+    plt.show()
 
-    prop = SGP4(
-        settings = dict(
-            out_frame='ITRS',
-        ),
-    )
-
-    orb = pyorb.Orbit(
-        M0 = pyorb.M_earth, 
-        direct_update=True, 
-        auto_update=True, 
-        degrees=True, 
-        a=7200e3, 
-        e=0.05, 
-        i=75, 
-        omega=0, 
-        Omega=79, 
-        anom=72, 
-        epoch=53005.0,
-    )
-    print(orb)
-
-    t = sorts.equidistant_sampling(
-        orbit = orb, 
-        start_t = 0, 
-        end_t = 3600*24*1, 
-        max_dpos=1e4,
-    )
-
-    states = prop.propagate(t, orb.cartesian[:,0], orb.epoch)
-
-    passes = eiscat3d.find_passes(t, states)
-
-    for txi in range(len(eiscat3d.tx)):
-        for rxi in range(len(eiscat3d.rx)):
-            for ps in passes[txi][rxi]: print(ps)
 
 When used for publications
 ===========================
 
-TBD
+Contact at least one of the following:
+
+ * Daniel Kastinen <daniel.kastinen@irf.se>
+ * Tima Sergienko <tima@irf.se>
+ * Urban Braendstroem <urban.brandstrom@irf.se>
+ * Petrus Hyvönen <Petrus.Hyvonen@sscspace.com>
+ * Johan Kero <kero@irf.se>
