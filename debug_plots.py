@@ -26,6 +26,8 @@ def test_sgp4_od(fname, err_fname, json_file):
     #mean0, params0, epoch0 = a4.od.get_mean_elements_start(tle_space_object = obj, start_epoch=time0)
     mean0, params0, epoch0 = a4.od.get_mean_elements_start(tle_space_object = obj, start_epoch=None)
 
+    #todo: fix mcmc
+
     results = a4.od.determine_orbit(sources, start=mean0, propagator='mean-elements', epoch=epoch0, mcmc=False, params=params0)
 
     state0_named= results['state0_named']

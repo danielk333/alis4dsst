@@ -57,7 +57,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
     ret = dict()
 
     samples = kwargs.get('samples', int(1e5))
-    step_arr = kwargs.get('step', np.array([1e3,1e-1,1.,1.,1.,1.], dtype=np.float64))
+    
 
     logger = sorts.profiling.get_logger('od', term_level = logging.ERROR)
 
@@ -76,6 +76,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict()
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
+        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
 
     elif propagator.lower() == 'mean-elements':
         prop = SGP4(
@@ -87,6 +88,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict(SGP4_mean_elements=True)
         variables = ['a', 'e', 'i', 'raan', 'aop', 'mu']
+        step_arr = kwargs.get('step', np.array([1e3,1e-2,1.,1.,1.,1.], dtype=np.float64))
 
     elif propagator.lower() == 'sgp4':
         prop = SGP4(
@@ -98,6 +100,8 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict(SGP4_mean_elements=False)
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
+        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
+
     else:
         raise ValueError(f'Propagator "{propagator}" not recognized.')
 
