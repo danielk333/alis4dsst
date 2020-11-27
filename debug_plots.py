@@ -150,5 +150,5 @@ if __name__=='__main__':
     # plot_file_raw_data('data/Sat_coord_20200401T195000b.mat')
     # test_correlate('data/Sat_coord_20200401T195000b.mat', 'data/spacetrack.json')
     # plot_errors('data/amb_function.mat')
-    # test_sgp4_od('data/Sat_coord_20200401T195000b.mat', 'data/amb_function.mat', 'data/spacetrack.json')
-    test_orekit_od('data/Sat_coord_20200401T195000b.mat', 'data/amb_function.mat', 'data/spacetrack.json')
+    test_sgp4_od('data/Sat_coord_20200401T195000b.mat', 'data/amb_function.mat', 'data/spacetrack.json')
+    # test_orekit_od('data/Sat_coord_20200401T195000b.mat', 'data/amb_function.mat', 'data/spacetrack.json')
