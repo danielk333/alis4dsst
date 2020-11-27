@@ -3,157 +3,175 @@
 '''
 
 '''
+import logging
 
+import numpy as np
+import matplotlib.pyplot as plt
+from astropy.time import Time
+
+import sorts
+import pyorb
 from pyod import SGP4
 from pyod import OptimizeLeastSquares, MCMCLeastSquares
 from pyod import CameraStation
 
-import pyod.plot as plot
-
-import pyorb
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-from alis4d_source import sources, state0, prior_time, ecef_est
-
-from sorts.population import tle_catalog
-from sorts.frames import convert
-from astropy.time import Time
+from . import alis4d
 
 
+def get_mean_elements_start(tle_space_object, start_epoch):
+    '''
+    '''
 
-steps = int(1e5)
+    mean0, B, tle_epoch = tle_space_object.propagator.get_mean_elements(tle_space_object.state[0], tle_space_object.state[1], radians=False)
 
-prop = SGP4(
-    settings=dict(
-        in_frame='TEME',
-        out_frame='ITRS',
+    params0 = dict(B=B)
+
+    if start_epoch is None:
+        epoch0 = tle_epoch
+        return mean0, params0, epoch0
+
+    elif isinstance(start_epoch, Time):
+        epoch0 = start_epoch
+    else:
+        epoch0 = Time(start_epoch, format='datetime64', scale='utc')
+
+    dt = (epoch0 - tle_epoch).sec
+
+    out_frame_ = tle_space_object.out_frame
+    tle_space_object.out_frame = 'TEME'
+
+    teme0 = tle_space_object.get_state(dt)
+
+    tle_space_object.out_frame = out_frame_
+
+    mean_start = tle_space_object.propagator.TEME_to_TLE(teme0[:,0], epoch0, B=B, kepler=False)
+
+    mean0[5] = mean_start[5]
+
+    return mean0, params0, epoch0
+
+
+
+def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
+
+    ret = dict()
+
+    samples = kwargs.get('samples', int(1e5))
+    step_arr = kwargs.get('step', np.array([1e3,1e-1,1.,1.,1.,1.], dtype=np.float64))
+
+    logger = sorts.profiling.get_logger('od', term_level = logging.ERROR)
+
+    if propagator.lower() == 'orekit':
+        from sorts.propagator import Orekit
+
+        prop = Orekit(
+            orekit_data = kwargs['orekit_data'], 
+            settings=dict(
+                in_frame='TEME',
+                out_frame='ITRS',
+                drag_force = kwargs.get('drag_force',False),
+                radiation_pressure = False,
+            ),
+            logger = logger,
+        )
+        params = dict()
+        variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
+
+    elif propagator.lower() == 'mean-elements':
+        prop = SGP4(
+            settings=dict(
+                in_frame='TEME',
+                out_frame='ITRS',
+            ),
+            logger = logger,
+        )
+        params = dict(SGP4_mean_elements=True)
+        variables = ['a', 'e', 'i', 'raan', 'aop', 'mu']
+
+    elif propagator.lower() == 'sgp4':
+        prop = SGP4(
+            settings=dict(
+                in_frame='TEME',
+                out_frame='ITRS',
+            ),
+            logger = logger,
+        )
+        params = dict(SGP4_mean_elements=False)
+        variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
+    else:
+        raise ValueError(f'Propagator "{propagator}" not recognized.')
+
+    params.update(kwargs.get('params', {}))
+    dtype = [(name, 'float64') for name in variables]
+
+    if isinstance(epoch, Time):
+        epoch0 = epoch
+    else:
+        epoch0 = Time(epoch, format='datetime64', scale='utc')
+
+    state0_named = np.empty((1,), dtype=dtype)
+    step = np.empty((1,), dtype=dtype)
+
+    for ind, name in enumerate(variables):
+        state0_named[name] = start[ind]
+        step[name] = step_arr[ind]
+
+    ret['state0_named'] = state0_named
+    ret['step'] = step
+    ret['variables'] = variables
+
+    input_data_state = {
+        'sources': sources,
+        'Model': CameraStation,
+        'date0': epoch0.datetime64,
+        'params': params,
+    }
+
+    post_init = OptimizeLeastSquares(
+        data = input_data_state,
+        variables = variables,
+        start = state0_named,
+        prior = None,
+        propagator = prop,
+        method = 'Nelder-Mead',
+        options = dict(
+            maxiter = 10000,
+            disp = False,
+            xatol = 1e-3,
+        ),
     )
-)
 
-state0_teme = convert(
-    Time(prior_time, format='datetime64', scale='utc'), 
-    state0, 
-    in_frame='ITRS', 
-    out_frame='TEME',
-)
-orb = pyorb.Orbit(M0 = pyorb.M_earth, direct_update=True, auto_update=True, degrees=True, type='mean')
-orb.cartesian = state0_teme.reshape(6,1)
-print(orb)
+    post_init.run()
 
-mean0 = orb.kepler[:,0]
-#The order is different (and remember its mean anomaly), but we still use SI units
-tmp = mean0[4]
-mean0[4] = mean0[3]
-mean0[3] = tmp
+    ret['post_init'] = post_init
 
-spacetrack = json.load(open('spacetrack.json','r'))
-tles = [(x['TLE_LINE1'],x['TLE_LINE2']) for x in spacetrack]
-pop = tle_catalog(tles, cartesian=False) #for SGP4
-pop.filter('oid', lambda x: x == 39771)
-obj = pop.get_object(0)
-print('Prior:')
-print(obj.state[0])
-print(obj.state[1])
-mean00, B, epoch = obj.propagator.get_mean_elements(obj.state[0], obj.state[1])
-
-mean0[:3] = mean00[:3] #take inclination and shape from prior
-
-print(mean0)
-print(epoch.iso)
-
-# params = dict(SGP4_mean_elements=True, A=1.0, m=1.0, C_D=2.3, C_R=1.0)
-params = dict(SGP4_mean_elements=True, B=B)
-
-variables = ['a', 'e', 'i', 'raan', 'aop', 'mu']
-dtype = [(name, 'float64') for name in variables]
-
-state0_named = np.empty((1,), dtype=dtype)
-step_arr = np.array([1e3,1e-1,1.,1.,1.,1.], dtype=np.float64)
-step = np.empty((1,), dtype=dtype)
-
-for ind, name in enumerate(variables):
-    state0_named[name] = mean0[ind]
-    step[name] = step_arr[ind]
-
-
-input_data_state = {
-    'sources': sources,
-    'Model': CameraStation,
-    'date0': prior_time,
-    'params': params,
-}
-
-post_init = OptimizeLeastSquares(
-    data = input_data_state,
-    variables = variables,
-    start = state0_named,
-    prior = None,
-    propagator = prop,
-    method = 'Nelder-Mead',
-    options = dict(
-        maxiter = 10000,
-        disp = False,
-        xatol = 1e-3,
-    ),
-)
-
-post_init.run()
-
-# post = post_init
-
-post = MCMCLeastSquares(
-    data = input_data_state,
-    variables = variables,
-    start = post_init.results.MAP,
-    prior = None,
-    propagator = prop,
-    method = 'SCAM',
-    method_options = dict(
-        accept_max = 0.5,
-        accept_min = 0.3,
-        adapt_interval = 500,
-    ),
-    steps = steps,
-    step = step,
-    tune = 500,
-)
-
-
-post.run()
-post.results.save('SGP4_mcmc_results.h5')
-
-from pyod.posterior import _named_to_enumerated
-
-fig, axes = plt.subplots(3, 1,figsize=(15,15), sharex=True)
-
-for label, __state, col in zip(['start','MAP'], [state0_named, post.results.MAP], ['b','k']):
-    __state = _named_to_enumerated(__state, post.variables)
-    t = np.linspace(0, np.max(post._models[0].data['t']), num=1000)
-    _t = post._models[0].data['t']
-    post._models[0].data['t'] = t
-    states_ = post._models[0].get_states(__state)
-    post._models[0].data['t'] = _t
-
-    for i in range(3):
-        axes[i].plot(t/3600, states_[i,:],"-"+col,
-            label=label,
+    if mcmc:
+        post = MCMCLeastSquares(
+            data = input_data_state,
+            variables = variables,
+            start = post_init.results.MAP,
+            prior = None,
+            propagator = prop,
+            method = 'SCAM',
+            method_options = dict(
+                accept_max = 0.5,
+                accept_min = 0.3,
+                adapt_interval = 500,
+            ),
+            steps = samples,
+            step = step,
+            tune = 500,
         )
 
-for i in range(3):
-    axes[i].plot(post._models[0].data['t']/3600, ecef_est[i,:],"-r",
-        label='Triangulation',
-    )
+
+        post.run()
+    else:
+        post = post_init
+
+    ret['post'] = post
+
+    return ret
 
 
 
-
-print(post.results)
-
-plot.orbits(post)
-plot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=False)
-plot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=True)
-
-plt.show()
 

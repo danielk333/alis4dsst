@@ -1,5 +1,6 @@
 from pyod.plot import earth_grid
 import sorts
+from pyod.posterior import _named_to_enumerated
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,6 +31,37 @@ def track(S):
 
 def ang_mod(theta):
     return np.mod(theta + 360.0, 360.0)
+
+def model_to_data(start, post, ecef_ref=None, ref_label='Triangularization', axes=None):
+
+    if axes is None:
+        fig = plt.figure()
+        fig, axes = plt.subplots(3, 1,figsize=(15,15), sharex=True)
+    else:
+        fig = None
+
+    for label, __state, col in zip(['start','MAP'], [start, post.results.MAP], ['b','k']):
+        __state = _named_to_enumerated(__state, post.variables)
+        t = np.linspace(0, np.max(post._models[0].data['t']), num=1000)
+        _t = post._models[0].data['t']
+        post._models[0].data['t'] = t
+        states_ = post._models[0].get_states(__state)
+        post._models[0].data['t'] = _t
+
+        for i in range(3):
+            axes[i].plot(t/3600, states_[i,:],"-"+col,
+                label=label,
+            )
+
+    if ecef_ref is not None:
+        for i in range(3):
+            axes[i].plot(post._models[0].data['t']/3600, ecef_ref[i,:],"-r",
+                label=ref_label,
+            )
+
+    axes[0].legend()
+
+    return fig, axes
 
 
 def correlation_azel(dat, cdat, station=None, axes=None):

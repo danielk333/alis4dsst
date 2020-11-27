@@ -16,7 +16,9 @@ def load_sds(fname, n_est=int(1e6)):
     mat_err['az_amb'] = np.degrees(mat_err['az_amb'].flatten())
     mat_err['ze_amb'] = np.degrees(mat_err['ze_amb'].flatten())
 
+    np.random.seed(1234) #for consistency
     rng_ = np.random.rand(n_est)
+    np.random.seed(None)
 
     rng_inds = np.zeros(rng_.shape, dtype=np.int64)
 
