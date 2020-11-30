@@ -1,7 +1,23 @@
 ALIS4D SST
 ============
 
-Using the orbit determination
+Running the analysis from terminal
+
+.. code-block:: bash
+
+    python run_analysis.py data/Sat_coord_20200401T195300.mat corr plot
+
+Just add on more keywords at the end for options, they are
+
+* corr: run correlation with spacetrack catalogue
+* od: orbit determination
+* plot: generate plots
+* sgp4: use sgp4 mean elements for orbit determination
+* orekit: use orekit for orbit determination (default)
+* override: override the caches if they exist
+
+
+Using the code in python
 
 .. code-block:: python
 
@@ -14,6 +30,7 @@ Using the orbit determination
     fig, ax = a4.plots.track(sources)
 
     plt.show()
+
 
 
 When used for publications

@@ -86,7 +86,6 @@ class ALID4DTrack(OpticalTracklet):
         #new convention?
         st_name = self.kwargs['station']
 
-
         #All functions use deg as default, data is in deg now
         data = np.empty((len(np.squeeze(mat['TimeS'])), ), dtype=OpticalTracklet.dtype)
         data['az'] = np.squeeze(mat['az' + st_name])

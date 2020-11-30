@@ -15,9 +15,9 @@ import alis4dsst as a4
 
 
 
-def cache_wrapper(func, cpath):
+def cache_wrapper(func, cpath, override=False):
     def cached_func(*args, **kw):
-        if cpath.is_file():
+        if cpath.is_file() and not override:
             with open(cpath, 'rb') as h:
                 ret = pickle.load(h)
         else:
@@ -60,13 +60,16 @@ def run_od(sources, obj, propagator, mcmc, time0=None, **kw):
 
     #todo: fix mcmc
     results = a4.od.determine_orbit(sources, start=state0, propagator=od_, epoch=epoch0, mcmc=mcmc, params=params0, **kw)
+    state0_named= results['state0_named']
+    post = results['post']
+    variables = results['variables']
 
     return results
 
 
 
 if __name__=='__main__':
-    
+
     if len(sys.argv) < 2:
         fname = 'data/Sat_coord_20200401T194900a.mat'
     else:
@@ -75,6 +78,14 @@ if __name__=='__main__':
     #we know this one
     if fname == 'data/Sat_coord_20200401T195000b.mat':
         corr_kw = dict(oids = [39771])
+    elif fname == 'data/Sat_coord_20200401T194900a.mat':
+        #https://space.skyrocket.de/doc_sdat/hawkeye-pathfinder.htm
+        #Did they do a maneuver???
+        corr_kw = dict(oids = [43799])
+    elif fname == 'data/Sat_coord_20200401T195200.mat':
+        #lets find this automatically
+        corr_kw = {}
+        #corr_kw = dict(oids = [16182])
     else:
         corr_kw = {}
 
@@ -88,6 +99,11 @@ if __name__=='__main__':
         mcmc = True
     else:
         mcmc = False
+
+    if 'override' in run_segments:
+        override = True
+    else:
+        override = False
 
     if 'sgp4' in run_segments:
         prop = 'sgp4'
@@ -104,8 +120,8 @@ if __name__=='__main__':
     
     corr_cache = pathlib.Path('.'.join(fname.split('.')[:-1]) + '_correlation.pickle')
     od_cache = pathlib.Path('.'.join(fname.split('.')[:-1]) + f'_{prop}_od.pickle')
-    wrapped_run_correlator = cache_wrapper(run_correlator, corr_cache)
-    wrapped_run_od = cache_wrapper(run_od, od_cache)
+    wrapped_run_correlator = cache_wrapper(run_correlator, corr_cache, override=override)
+    wrapped_run_od = cache_wrapper(run_od, od_cache, override=override)
 
 
     az_sd, el_sd, az_samps, el_samps = a4.io.load_sds(err_fname)
@@ -114,11 +130,14 @@ if __name__=='__main__':
     if 'od' in run_segments or 'corr' in run_segments:
         measurements, indecies, metric, cdat, pop = wrapped_run_correlator(sources, tles, **corr_kw)
 
+        for mi, meas in enumerate(measurements):
+            print(f'Measurement {mi} time: {meas["epoch"]}')
+
         print(pop.print(n=indecies[0], fields=['line1']) + '\n')
         print(pop.print(n=indecies[0], fields=['line2']) + '\n')
         print(pop.print(n=indecies[0], fields=['A','m','d','C_D','C_R','BSTAR']) + '\n')
 
-        if 'plot' in run_segments:
+        if 'corr' in run_segments and 'plot' in run_segments:
 
             print('Metric, best')
             print(metric[0])
@@ -132,8 +151,9 @@ if __name__=='__main__':
                 a4.plots.correlation_azel(measurements[i], cdat[0][i], axes = [axes[j,i] for j in range(2)])
                 a4.plots.correlation_resid(measurements[i], cdat[0][i], axes = [None]*2 + [axes[j,i] for j in range(2,4)])
             axes[0,0].legend()
-
-            a4.plots.correlation_track(measurements[0], cdat[0][0])
+            
+            #plot Kiruna one
+            a4.plots.correlation_track(measurements[2], cdat[0][2])
 
     if 'od' in run_segments:
 
@@ -141,16 +161,13 @@ if __name__=='__main__':
         print('OD with prior:')
         print(obj)
 
-        results = wrapped_run_od(sources, obj, prop, mcmc, time0=None, **od_kw)
+        post, variables, state0_named = run_od(sources, obj, prop, mcmc, time0=None, **od_kw)
 
         if 'plot' in run_segments:
 
-            state0_named= results['state0_named']
-            post = results['post']
-
             print(post.results)
 
-            for name in results['variables']:
+            for name in variables:
                 print(f'{name}: {state0_named[name]} vs {post.results.MAP[name]}')
 
             a4.plots.model_to_data(state0_named, post)
