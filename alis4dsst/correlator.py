@@ -103,4 +103,4 @@ def correlate(sources, tles, propagator, **kwargs):
         MPI=kwargs.get('MPI', False), 
     )
 
-    return measurements, indecies, metric, cdat
+    return measurements, indecies, metric, cdat, pop

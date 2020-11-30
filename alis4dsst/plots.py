@@ -180,7 +180,7 @@ def correlation_track(dat, cdat, station=None, ax=None):
 
     ang = np.degrees(np.arccos(azx*azx_ref + azy*azy_ref))
 
-    if axes is None:
+    if ax is None:
         fig, ax = plt.subplots(1,1)
     else:
         fig = None

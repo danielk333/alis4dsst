@@ -128,7 +128,7 @@ def test_correlate(fname, json_file):
 
     tles = [(x['TLE_LINE1'],x['TLE_LINE2']) for x in spacetrack]
 
-    measurements, indecies, metric, cdat = a4.correlate(
+    measurements, indecies, metric, cdat, pop = a4.correlate(
         sources, 
         tles, 
         propagator='SGP4',

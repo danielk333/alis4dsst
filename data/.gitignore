@@ -1,4 +1,5 @@
 *.mat
 *.json
 *.h5
+*.pickle
 old_format/
