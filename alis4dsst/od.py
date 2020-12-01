@@ -59,7 +59,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
     samples = kwargs.get('samples', int(1e5))
     
 
-    logger = sorts.profiling.get_logger('od', term_level = logging.ERROR)
+    logger = sorts.profiling.get_logger('od', term_level = logging.CRITICAL)
 
     if propagator.lower() == 'orekit':
         from sorts.propagator import Orekit
@@ -78,6 +78,8 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
         step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
 
+        prior = None
+
     elif propagator.lower() == 'mean-elements':
         prop = SGP4(
             settings=dict(
@@ -90,6 +92,17 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         variables = ['a', 'e', 'i', 'raan', 'aop', 'mu']
         step_arr = kwargs.get('step', np.array([1e3,1e-2,1.,1.,1.,1.], dtype=np.float64))
 
+        prior = [
+            dict(
+                variables = ['e'],
+                distribution = 'uniform',
+                params = dict(
+                    loc = 1e-12,
+                    scale = 1.0-2e-12,
+                ),
+            ),
+        ]
+
     elif propagator.lower() == 'sgp4':
         prop = SGP4(
             settings=dict(
@@ -101,6 +114,8 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         params = dict(SGP4_mean_elements=False)
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
         step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
+
+        prior = None
 
     else:
         raise ValueError(f'Propagator "{propagator}" not recognized.')
@@ -135,7 +150,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         data = input_data_state,
         variables = variables,
         start = state0_named,
-        prior = None,
+        prior = prior,
         propagator = prop,
         method = 'Nelder-Mead',
         options = dict(
@@ -154,7 +169,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
             data = input_data_state,
             variables = variables,
             start = post_init.results.MAP,
-            prior = None,
+            prior = prior,
             propagator = prop,
             method = 'SCAM',
             method_options = dict(

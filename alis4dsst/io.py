@@ -62,14 +62,20 @@ def load_track(fname, az_sd, el_sd):
 
     #if triangulation is available, create a OD start value
     if 'latSat' in mat:
-        prior_ecef0 = geodetic2ecef(mat['latSat'][0,0], mat['longSat'][0,0], mat['altSat'][0,0]*1e3, radians=False)
-        prior_ecef1 = geodetic2ecef(mat['latSat'][1,0], mat['longSat'][1,0], mat['altSat'][1,0]*1e3, radians=False)
+        prior_ecef_start = geodetic2ecef(mat['latSat'][0,0], mat['longSat'][0,0], mat['altSat'][0,0]*1e3, radians=False)
 
-        time_delta = (sources[0].data['date'][1] - sources[0].data['date'][0])/np.timedelta64(1, 's')
-        prior_vel = (prior_ecef1 - prior_ecef0)/time_delta
+        prior_vel = np.zeros((3,))
+        for j in range(len(sources[0].data['date'])-1):
+            prior_ecef0 = geodetic2ecef(mat['latSat'][j,0], mat['longSat'][j,0], mat['altSat'][j,0]*1e3, radians=False)
+            prior_ecef1 = geodetic2ecef(mat['latSat'][j+1,0], mat['longSat'][j+1,0], mat['altSat'][j+1,0]*1e3, radians=False)
+
+            time_delta = (sources[0].data['date'][j+1] - sources[0].data['date'][j])/np.timedelta64(1, 's')
+            prior_vel += (prior_ecef1 - prior_ecef0)/time_delta
+
+        prior_vel /= len(sources[0].data['date'])-1
         
         state0 = np.empty((6,))
-        state0[:3] = prior_ecef0
+        state0[:3] = prior_ecef_start
         state0[3:] = prior_vel
     else:
         state0 = None

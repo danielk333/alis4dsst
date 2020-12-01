@@ -6,10 +6,15 @@ import sys
 import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
+from astropy.time import Time, TimeDelta
 
+import pyod
 from pyod import PosteriorParameters
-from sorts.population import tle_catalog
 import pyod.plot as odplot
+
+import sorts
+from sorts.population import tle_catalog
+from sorts.frames import convert
 
 import alis4dsst as a4
 
@@ -41,28 +46,45 @@ def run_correlator(sources, tles, **kw):
     return measurements, indecies, metric, cdat, pop
 
 
-def run_od(sources, obj, propagator, mcmc, time0=None, **kw):
+def run_od(sources, start, propagator, mcmc, time0=None, **kw):
 
-    state0, params0, epoch0 = a4.od.get_mean_elements_start(tle_space_object = obj, start_epoch=time0)
+    if isinstance(start, sorts.SpaceObject):
+        obj = start
+        state0, params0, epoch0 = a4.od.get_mean_elements_start(tle_space_object = obj, start_epoch=time0)
 
-    if propagator == 'sgp4':
-        od_ = 'mean-elements'
+        if propagator == 'sgp4':
+            od_ = 'mean-elements'
+        elif propagator == 'sgp4-state':
+            od_ = 'sgp4'
+            obj.out_frame = 'TEME'
+
+            if time0 is None:
+                state0 = obj.get_state(0.0)[:,0]
+                epoch0 = obj.epoch
+            else:
+                state0 = obj.get_state(time0 - obj.epoch)[:,0]
+                epoch0 = time0
+        elif propagator == 'orekit':
+            od_ = 'orekit'
+            obj.out_frame = 'TEME'
+            
+            if time0 is None:
+                state0 = obj.get_state(0.0)[:,0]
+                epoch0 = obj.epoch
+            else:
+                state0 = obj.get_state(time0 - obj.epoch)[:,0]
+                epoch0 = time0
     else:
-        od_ = 'orekit'
-        obj.out_frame = 'TEME'
-        
-        if time0 is None:
-            state0 = obj.get_state(0.0)[:,0]
-            epoch0 = obj.epoch
+        state0 = start
+        epoch0 = time0
+        params0 = {'C_D': 0.0, 'A': 1.0}
+        if propagator == 'sgp4':
+            od_ = 'sgp4'
         else:
-            state0 = obj.get_state(time0 - obj.epoch)[:,0]
-            epoch0 = time0
+            od_ = 'orekit'
 
     #todo: fix mcmc
     results = a4.od.determine_orbit(sources, start=state0, propagator=od_, epoch=epoch0, mcmc=mcmc, params=params0, **kw)
-    state0_named= results['state0_named']
-    post = results['post']
-    variables = results['variables']
 
     return results
 
@@ -71,9 +93,11 @@ def run_od(sources, obj, propagator, mcmc, time0=None, **kw):
 if __name__=='__main__':
 
     if len(sys.argv) < 2:
-        fname = 'data/Sat_coord_20200401T194900a.mat'
+        fname = 'data/Sat_coord_20200401T195000b.mat'
     else:
         fname = sys.argv[1]
+
+    assert pathlib.Path(fname).is_file(), f'File {fname} not found'
 
     #we know this one
     if fname == 'data/Sat_coord_20200401T195000b.mat':
@@ -108,9 +132,15 @@ if __name__=='__main__':
     if 'sgp4' in run_segments:
         prop = 'sgp4'
         od_kw = {}
-    else:
+    if 'sgp4-state' in run_segments:
+        prop = 'sgp4-state'
+        od_kw = {}
+    elif 'orekit' in run_segments:
         prop = 'orekit'
         od_kw = dict(orekit_data = '/home/danielk/IRF/IRF_GITLAB/orekit_build/orekit-data-master.zip')
+    else:
+        prop = 'sgp4-state'
+        od_kw = {}
 
     err_fname = 'data/amb_function.mat'
     json_file = 'data/spacetrack.json'
@@ -120,12 +150,17 @@ if __name__=='__main__':
     
     corr_cache = pathlib.Path('.'.join(fname.split('.')[:-1]) + '_correlation.pickle')
     od_cache = pathlib.Path('.'.join(fname.split('.')[:-1]) + f'_{prop}_od.pickle')
-    wrapped_run_correlator = cache_wrapper(run_correlator, corr_cache, override=override)
+    if 'corr' not in run_segments:
+        corr_override = False
+    else:
+        corr_override = override
+
+    wrapped_run_correlator = cache_wrapper(run_correlator, corr_cache, override=corr_override)
     wrapped_run_od = cache_wrapper(run_od, od_cache, override=override)
 
 
     az_sd, el_sd, az_samps, el_samps = a4.io.load_sds(err_fname)
-    sources, time0, state0 = a4.io.load_track(fname, az_sd, el_sd)
+    sources, obs_time0, obs_state0 = a4.io.load_track(fname, az_sd, el_sd)
 
     if 'od' in run_segments or 'corr' in run_segments:
         measurements, indecies, metric, cdat, pop = wrapped_run_correlator(sources, tles, **corr_kw)
@@ -137,12 +172,12 @@ if __name__=='__main__':
         print(pop.print(n=indecies[0], fields=['line2']) + '\n')
         print(pop.print(n=indecies[0], fields=['A','m','d','C_D','C_R','BSTAR']) + '\n')
 
-        if 'corr' in run_segments and 'plot' in run_segments:
+        print('Metric, best')
+        print(metric[0])
+        print('Metric, runner ups')
+        print(metric[1:100])
 
-            print('Metric, best')
-            print(metric[0])
-            print('Metric, runner ups')
-            print(metric[1:100])
+        if 'corr' in run_segments and 'plot' in run_segments:
             
             fig, axes = plt.subplots(4,len(sources), sharex=True)
             
@@ -157,11 +192,31 @@ if __name__=='__main__':
 
     if 'od' in run_segments:
 
-        obj = pop.get_object(indecies[0])
-        print('OD with prior:')
-        print(obj)
+        if metric[0] < 20.0:
+            obj = pop.get_object(indecies[0])
+            print('Catalog match found, using prior as start value:')
+            print(obj)
+            state0 = obj
+            time0 = None
+        else:
+            print('No catalog match found, using initial triangulation as start value:')
+            time0 = obs_time0
 
-        post, variables, state0_named = run_od(sources, obj, prop, mcmc, time0=None, **od_kw)
+            assert obs_state0 is not None, 'No initial triangulation available, cannot estimate start value'
+
+            state0 = convert(
+                Time(obs_time0, format='datetime64', scale='utc'), 
+                obs_state0, 
+                in_frame='ITRS', 
+                out_frame='TEME',
+            )
+            print(f'Obs 0 ITRS {obs_state0}')
+            print(f'Obs 0 TEME {state0}')
+
+        results = wrapped_run_od(sources, state0, prop, mcmc, time0=time0, **od_kw)
+        state0_named= results['state0_named']
+        post = results['post']
+        variables = results['variables']
 
         if 'plot' in run_segments:
 
@@ -175,6 +230,11 @@ if __name__=='__main__':
             odplot.orbits(post)
             odplot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=False)
             odplot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=True)
+
+            if mcmc:
+                odplot.autocorrelation(post.results, max_k=2000)
+                odplot.trace(post.results)
+                odplot.scatter_trace(post.results)
 
 
     if 'plot' in run_segments:
