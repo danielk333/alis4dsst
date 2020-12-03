@@ -76,7 +76,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict()
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
-        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
+        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64)*10)
 
         prior = None
 
@@ -90,7 +90,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict(SGP4_mean_elements=True)
         variables = ['a', 'e', 'i', 'raan', 'aop', 'mu']
-        step_arr = kwargs.get('step', np.array([1e3,1e-2,1.,1.,1.,1.], dtype=np.float64))
+        step_arr = kwargs.get('step', np.array([1e3,1e-2,1.,1.,1.,1.], dtype=np.float64)*10)
 
         prior = [
             dict(
@@ -113,7 +113,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict(SGP4_mean_elements=False)
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
-        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
+        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64)*10)
 
         prior = None
 
@@ -173,13 +173,13 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
             propagator = prop,
             method = 'SCAM',
             method_options = dict(
-                accept_max = 0.5,
+                accept_max = 0.6,
                 accept_min = 0.3,
-                adapt_interval = 500,
+                adapt_interval = 1000,
             ),
             steps = samples,
             step = step,
-            tune = 500,
+            tune = 1000,
         )
 
 

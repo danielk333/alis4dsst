@@ -154,3 +154,8 @@ if __name__=='__main__':
     # plot_errors('data/amb_function.mat')
     test_sgp4_od('data/Sat_coord_20200401T195000b.mat', 'data/amb_function.mat', 'data/spacetrack.json')
     # test_orekit_od('data/Sat_coord_20200401T195000b.mat', 'data/amb_function.mat', 'data/spacetrack.json')
+
+
+    #todo:
+    #check the rho0 variable
+    #https://www.celestrak.com/NORAD/documentation/spacetrk.pdf

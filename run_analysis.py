@@ -10,11 +10,13 @@ from astropy.time import Time, TimeDelta
 
 import pyod
 from pyod import PosteriorParameters
+from pyod import propagate_results
 import pyod.plot as odplot
 
 import sorts
 from sorts.population import tle_catalog
 from sorts.frames import convert
+from sorts.propagator import SGP4
 
 import alis4dsst as a4
 
@@ -97,6 +99,10 @@ if __name__=='__main__':
     else:
         fname = sys.argv[1]
 
+
+    samples = int(1e6)
+
+
     assert pathlib.Path(fname).is_file(), f'File {fname} not found'
 
     #we know this one
@@ -141,6 +147,8 @@ if __name__=='__main__':
     else:
         prop = 'sgp4-state'
         od_kw = {}
+
+    od_kw.update(dict(samples=samples))
 
     err_fname = 'data/amb_function.mat'
     json_file = 'data/spacetrack.json'
@@ -201,6 +209,7 @@ if __name__=='__main__':
         else:
             print('No catalog match found, using initial triangulation as start value:')
             time0 = obs_time0
+            obj = None
 
             assert obs_state0 is not None, 'No initial triangulation available, cannot estimate start value'
 
@@ -238,4 +247,40 @@ if __name__=='__main__':
 
 
     if 'plot' in run_segments:
+        plt.show()
+
+
+    if 'forward' in run_segments and obj is not None:
+
+        prop = SGP4(
+            settings=dict(
+                in_frame='TEME',
+                out_frame='TEME',
+            )
+        )
+
+        trace, inds = propagate_results(
+            t = 45.0*60.0,
+            date0 = obj.epoch.datetime64, 
+            results = post.results, 
+            propagator = prop, 
+            num = 1000, 
+            params = obj.parameters,
+        )
+
+        fig = plt.figure(figsize=(15,15))
+        ax = fig.add_subplot(121, projection='3d')
+        odplot.earth_grid(ax)
+        ax.plot(post.results.trace[inds]['x'], post.results.trace[inds]['y'], post.results.trace[inds]['z'], '.b')
+        ax.plot(trace['x'], trace['y'], trace['z'], '.r')
+
+        ax = fig.add_subplot(122, projection='3d')
+        ax.plot(trace['x'], trace['y'], trace['z'], '.r')
+
+        max_range = 50e3
+
+        ax.set_xlim(trace['x'].mean()-max_range, trace['x'].mean()+max_range)
+        ax.set_ylim(trace['y'].mean()-max_range, trace['y'].mean()+max_range)
+        ax.set_zlim(trace['z'].mean()-max_range, trace['z'].mean()+max_range)
+
         plt.show()
