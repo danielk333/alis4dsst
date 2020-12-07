@@ -102,7 +102,10 @@ class ALID4DTrack(OpticalTracklet):
         data['date'] = dt_start + mat_T_us.astype('timedelta64[us]')
 
         self.index = int(path[10:25].replace('T',''))
-        self.meta = {'ecef': self.kwargs['ecef']}
+        self.meta = {
+            'ecef': self.kwargs['ecef'], 
+            'station': stations[self.kwargs['station']]['name'],
+        }
         self.data = data
 
 

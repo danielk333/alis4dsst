@@ -76,7 +76,8 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict()
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
-        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64)*10)
+        # step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
+        step_arr = kwargs.get('step', np.ones((6,), dtype=np.float64)*0.1)
 
         prior = None
 
@@ -90,8 +91,8 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict(SGP4_mean_elements=True)
         variables = ['a', 'e', 'i', 'raan', 'aop', 'mu']
-        step_arr = kwargs.get('step', np.array([1e3,1e-2,1.,1.,1.,1.], dtype=np.float64)*10)
-
+        # step_arr = kwargs.get('step', np.array([1e3,1e-2,1.,1.,1.,1.], dtype=np.float64))
+        step_arr = kwargs.get('step', np.ones((6,), dtype=np.float64)*0.1)
         prior = [
             dict(
                 variables = ['e'],
@@ -113,7 +114,8 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         )
         params = dict(SGP4_mean_elements=False)
         variables = ['x', 'y', 'z', 'vx', 'vy', 'vz']
-        step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64)*10)
+        # step_arr = kwargs.get('step', np.array([1e3,1e3,1e3,1e1,1e1,1e1], dtype=np.float64))
+        step_arr = kwargs.get('step', np.ones((6,), dtype=np.float64)*0.1)
 
         prior = None
 
@@ -141,7 +143,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
 
     input_data_state = {
         'sources': sources,
-        'Model': CameraStation,
+        'Models': [CameraStation]*len(sources),
         'date0': epoch0.datetime64,
         'params': params,
     }
@@ -149,6 +151,7 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
     post_init = OptimizeLeastSquares(
         data = input_data_state,
         variables = variables,
+        state_variables = variables,
         start = state0_named,
         prior = prior,
         propagator = prop,
@@ -168,10 +171,12 @@ def determine_orbit(sources, start, propagator, epoch, mcmc=False, **kwargs):
         post = MCMCLeastSquares(
             data = input_data_state,
             variables = variables,
+            state_variables = variables,
             start = post_init.results.MAP,
             prior = prior,
             propagator = prop,
             method = 'SCAM',
+            proposal = 'LinSigma',
             method_options = dict(
                 accept_max = 0.6,
                 accept_min = 0.3,

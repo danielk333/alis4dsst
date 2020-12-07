@@ -170,6 +170,9 @@ if __name__=='__main__':
     az_sd, el_sd, az_samps, el_samps = a4.io.load_sds(err_fname)
     sources, obs_time0, obs_state0 = a4.io.load_track(fname, az_sd, el_sd)
 
+    sc_list = pyod.SourceCollection.from_list(sources)
+    sc_list.details()
+
     if 'od' in run_segments or 'corr' in run_segments:
         measurements, indecies, metric, cdat, pop = wrapped_run_correlator(sources, tles, **corr_kw)
 

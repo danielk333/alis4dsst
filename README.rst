@@ -32,6 +32,14 @@ Using the code in python
     plt.show()
 
 
+Example runs
+
+.. code-block:: bash
+
+    python run_analysis.py data/Sat_coord_20200401T195000b.mat od orekit
+    python run_analysis.py data/Sat_coord_20200401T195000b.mat od sgp4-state mcmc forward
+
+
 
 When used for publications
 ===========================
