@@ -80,7 +80,7 @@ def run_od(sources, start, propagator, mcmc, time0=None, **kw):
         state0 = start
         epoch0 = time0
         params0 = {'C_D': 0.0, 'A': 1.0}
-        if propagator == 'sgp4':
+        if propagator in ['sgp4', 'sgp4-state']:
             od_ = 'sgp4'
         else:
             od_ = 'orekit'
@@ -100,7 +100,7 @@ if __name__=='__main__':
         fname = sys.argv[1]
 
 
-    samples = int(1e6)
+    samples = int(1e5)
 
 
     assert pathlib.Path(fname).is_file(), f'File {fname} not found'
@@ -138,7 +138,7 @@ if __name__=='__main__':
     if 'sgp4' in run_segments:
         prop = 'sgp4'
         od_kw = {}
-    if 'sgp4-state' in run_segments:
+    elif 'sgp4-state' in run_segments:
         prop = 'sgp4-state'
         od_kw = {}
     elif 'orekit' in run_segments:
@@ -147,6 +147,7 @@ if __name__=='__main__':
     else:
         prop = 'sgp4-state'
         od_kw = {}
+
 
     od_kw.update(dict(samples=samples))
 
