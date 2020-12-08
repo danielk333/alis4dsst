@@ -10,11 +10,15 @@ Running the analysis from terminal
 Just add on more keywords at the end for options, they are
 
 * corr: run correlation with spacetrack catalogue
-* od: orbit determination
+* od: orbit determination using minimization
+* mcmc: orbit determination using Markov Chain Monte Carlo
 * plot: generate plots
 * sgp4: use sgp4 mean elements for orbit determination
-* orekit: use orekit for orbit determination (default)
+* orekit: use orekit for orbit determination 
+* sgp4-state: use sgp4 but with a TEME state for orbit determination (default)
 * override: override the caches if they exist
+* forward: do a forward propagation of the MCMC results (needs mcmc to have completed)
+
 
 
 Using the code in python
@@ -36,8 +40,8 @@ Example runs
 
 .. code-block:: bash
 
-    python run_analysis.py data/Sat_coord_20200401T195000b.mat od orekit
-    python run_analysis.py data/Sat_coord_20200401T195000b.mat od sgp4-state mcmc forward
+    python run_analysis.py data/Sat_coord_20200401T195000b.mat corr plot
+    python run_analysis.py data/Sat_coord_20200401T195000b.mat od sgp4-state mcmc forward plot
 
 
 

@@ -209,10 +209,10 @@ if __name__=='__main__':
             print('Catalog match found, using prior as start value:')
             print(obj)
             state0 = obj
-            time0 = None
+            time0 = Time(obs_time0, format='datetime64', scale='utc')
         else:
             print('No catalog match found, using initial triangulation as start value:')
-            time0 = obs_time0
+            time0 = Time(obs_time0, format='datetime64', scale='utc')
             obj = None
 
             assert obs_state0 is not None, 'No initial triangulation available, cannot estimate start value'
