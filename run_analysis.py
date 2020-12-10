@@ -99,9 +99,13 @@ if __name__=='__main__':
     else:
         fname = sys.argv[1]
 
+    fname_prefix = str(''.join(pathlib.Path(fname).name.split('.')[:-1]))
 
     samples = int(1e5)
 
+    plot_folder = pathlib.Path('.') / 'plots'
+    if not plot_folder.is_dir():
+        plot_folder.mkdir()
 
     assert pathlib.Path(fname).is_file(), f'File {fname} not found'
 
@@ -199,8 +203,16 @@ if __name__=='__main__':
                 a4.plots.correlation_resid(measurements[i], cdat[0][i], axes = [None]*2 + [axes[j,i] for j in range(2,4)])
             axes[0,0].legend()
             
+            fig.savefig(plot_folder / f'{fname_prefix}_correlation_results.png')
+            if 'close' in run_segments:
+                plt.close(fig)
+
             #plot Kiruna one
-            a4.plots.correlation_track(measurements[2], cdat[0][2])
+            fig, axes = a4.plots.correlation_track(measurements[2], cdat[0][2])
+
+            fig.savefig(plot_folder / f'{fname_prefix}_correlation_tracks.png')
+            if 'close' in run_segments:
+                plt.close(fig)
 
     if 'od' in run_segments:
 
@@ -238,16 +250,36 @@ if __name__=='__main__':
             for name in variables:
                 print(f'{name}: {state0_named[name]} vs {post.results.MAP[name]}')
 
-            a4.plots.model_to_data(state0_named, post)
+            fig, axes = a4.plots.model_to_data(state0_named, post)
+            fig.savefig(plot_folder / f'{fname_prefix}_OD_model_params.png')
+            if 'close' in run_segments:
+                plt.close(fig)
 
-            odplot.orbits(post)
-            odplot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=False)
-            odplot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=True)
+            # odplot.orbits(post)
+            # odplot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=False)
+
+            figs, axes = odplot.residuals(post, [state0_named, post.results.MAP], ['Start', 'MAP'], ['-b', '-g'], absolute=True)
+            for fi, fig in enumerate(figs):
+                fig.savefig(plot_folder / f'{fname_prefix}_OD_residuals_p{fi}.png')
+                if 'close' in run_segments:
+                    plt.close(fig)
 
             if mcmc:
-                odplot.autocorrelation(post.results, max_k=2000)
-                odplot.trace(post.results)
-                odplot.scatter_trace(post.results)
+                figs, axes = odplot.autocorrelation(post.results, max_k=2000)
+                for fi, fig in enumerate(figs):
+                    fig.savefig(plot_folder / f'{fname_prefix}_mcmc_autocorr_p{fi}.png')
+                    if 'close' in run_segments:
+                        plt.close(fig)
+
+                figs, axes = odplot.trace(post.results)
+                for fi, fig in enumerate(figs):
+                    fig.savefig(plot_folder / f'{fname_prefix}_mcmc_trace_{fi}.png')
+                    if 'close' in run_segments:
+                        plt.close(fig)
+                fig, axes = odplot.scatter_trace(post.results)
+                fig.savefig(plot_folder / f'{fname_prefix}_mcmc_scatter.png')
+                if 'close' in run_segments:
+                    plt.close(fig)
 
 
     if 'plot' in run_segments:

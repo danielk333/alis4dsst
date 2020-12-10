@@ -35,7 +35,6 @@ def ang_mod(theta):
 def model_to_data(start, post, ecef_ref=None, ref_label='Triangularization', axes=None):
 
     if axes is None:
-        fig = plt.figure()
         fig, axes = plt.subplots(3, 1,figsize=(15,15), sharex=True)
     else:
         fig = None
