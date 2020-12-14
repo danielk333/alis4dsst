@@ -1,6 +1,10 @@
 ALIS4D SST
 ============
 
+Further work:
+* implement proper PSF to use in logPost
+* implement new posterior in pyod that uses PSF in posterior calculation
+
 Running the analysis from terminal
 
 .. code-block:: bash
