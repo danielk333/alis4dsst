@@ -111,11 +111,13 @@ if __name__=='__main__':
 
     #we know this one
     if fname == 'data/Sat_coord_20200401T195000b.mat':
-        corr_kw = dict(oids = [39771])
+        #corr_kw = dict(oids = [39771])
+        corr_kw = {}
     elif fname == 'data/Sat_coord_20200401T194900a.mat':
         #https://space.skyrocket.de/doc_sdat/hawkeye-pathfinder.htm
         #Did they do a maneuver???
-        corr_kw = dict(oids = [43799])
+        #corr_kw = dict(oids = [43799])
+        corr_kw = {}
     elif fname == 'data/Sat_coord_20200401T195200.mat':
         #lets find this automatically
         corr_kw = {}

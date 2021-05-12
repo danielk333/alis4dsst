@@ -184,13 +184,13 @@ def correlation_track(dat, cdat, station=None, ax=None):
     else:
         fig = None
 
-    ax = sorts.plotting.local_tracking(
+    fig_, ax = sorts.plotting.local_tracking(
         cdat['az_ref'], 
         cdat['el_ref'], 
         ax=ax, 
         t=epoch + TimeDelta(t, format='sec'),
     )
-    ax = sorts.plotting.local_tracking(
+    fig_, ax = sorts.plotting.local_tracking(
         dat['az'], 
         dat['el'], 
         ax=ax, 
