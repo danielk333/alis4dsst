@@ -186,9 +186,14 @@ if __name__=='__main__':
         for mi, meas in enumerate(measurements):
             print(f'Measurement {mi} time: {meas["epoch"]}')
 
+        print(f'Population index: {indecies[0]}')
         print(pop.print(n=indecies[0], fields=['line1']) + '\n')
         print(pop.print(n=indecies[0], fields=['line2']) + '\n')
         print(pop.print(n=indecies[0], fields=['A','m','d','C_D','C_R','BSTAR']) + '\n')
+
+        obj = pop.get_object(indecies[0])
+        print('Space object:')
+        print(obj)
 
         print('Metric, best')
         print(metric[0])
@@ -209,8 +214,22 @@ if __name__=='__main__':
             if 'close' in run_segments:
                 plt.close(fig)
 
+            plot_id = 2
+
             #plot Kiruna one
-            fig, axes = a4.plots.correlation_track(measurements[2], cdat[0][2])
+            fig, axes = a4.plots.correlation_track(measurements[plot_id], cdat[0][plot_id])
+
+            dt = measurements[plot_id]["epoch"] - obj.epoch - TimeDelta(1*3600.0, format='sec')
+            st = a4.alis4d.stations[sources[plot_id].kwargs['station']]['st']
+            t = dt + TimeDelta(np.arange(0,3*3600,1.0), format='sec')
+            states = obj.get_state(t.sec)
+
+            #TODO: Figure out why this pass does not correspond to the ones from cdat
+            passes = sorts.passes.find_simultaneous_passes(t.sec, states, [st, st], cache_data=True)
+            for ps in passes:
+                print(ps)
+
+            _, axes = sorts.plotting.local_passes(passes, ax=axes, add_track=True)
 
             fig.savefig(plot_folder / f'{fname_prefix}_correlation_tracks.png')
             if 'close' in run_segments:
