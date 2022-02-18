@@ -18,6 +18,11 @@ import pyant
 import pyorb
 
 try:
+    from lamberthub import izzo2015
+except ImportError:
+    izzo2015 = None
+
+try:
     import aida
     import aida.camera
 except ImportError:
@@ -37,6 +42,23 @@ prop = sorts.propagator.Kepler(
         out_frame='ITRS',
     ),
 )
+
+
+def orbit_from_points(p1, p2, dt):
+    mu = pyorb.M_earth*pyorb.G
+    v1, v2 = izzo2015(mu, p1, p2, dt)
+
+    orb = pyorb.Orbit(
+        M0=pyorb.M_earth, 
+        m=0, 
+        num=2, 
+        radians=False,
+    )
+    orb.cartesian = np.vstack([
+        np.vstack([p1, p2]).T,
+        np.vstack([v1, v2]).T,
+    ])
+    return orb
 
 
 def read_optpar(file):
@@ -283,6 +305,306 @@ def detect_trace(args):
     A = A.reshape(A.size)
     A_index = np.arange(A.size).reshape(*shape)
 
+    u_edge = np.hstack([
+        np.arange(shape[0], dtype=np.int64),
+        np.full((shape[1],), shape[0] - 1, dtype=np.int64),
+        np.arange(shape[0], dtype=np.int64)[::-1],
+        np.full((shape[1],), 0, dtype=np.int64),
+    ])
+    v_edge = np.hstack([
+        np.full((shape[0],), 0, dtype=np.int64),
+        np.arange(shape[1], dtype=np.int64),
+        np.full((shape[0],), shape[1] - 1, dtype=np.int64),
+        np.arange(shape[1], dtype=np.int64)[::-1],
+    ])
+
+    # fig, ax = plt.subplots()
+    # ax.plot(u_edge, v_edge, '.')
+    # plt.show()
+
+    az_edge, ze_edge = camera.inv_project_directions(
+        u_edge, 
+        v_edge, 
+        imsize=shape,
+    )
+
+    u_edge0, v_edge0 = camera.project_directions(
+        az_edge, 
+        ze_edge, 
+    )
+    print(u_edge - u_edge0)
+    print(v_edge - v_edge0)
+    exit()
+
+    local_sph_edge = np.vstack([
+        az_edge, 
+        np.pi/2 - ze_edge, 
+        np.ones_like(az_edge),
+    ])
+
+    local_cart_edge = pyant.coordinates.sph_to_cart(local_sph_edge, radians=True)
+    ecef_edge = sorts.frames.enu_to_ecef(
+        knt_st.lat, 
+        knt_st.lon, 
+        knt_st.alt, 
+        local_cart_edge, 
+        radians=False,
+    )
+
+    # fig = plt.figure(figsize=(15, 15))
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.plot(knt_st.ecef[0], knt_st.ecef[1], knt_st.ecef[2], '.r')
+    # ax.plot(
+    #     knt_st.ecef[0, None] + ecef_edge[0, :], 
+    #     knt_st.ecef[1, None] + ecef_edge[1, :], 
+    #     knt_st.ecef[2, None] + ecef_edge[2, :], 
+    #     '-b',
+    # )
+    # plt.show()
+
+    local_cart = knt_st.enu(ecef_edge + knt_st.ecef[:, None])
+    local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
+    local_sph[1, :] = np.pi/2 - local_sph[1, :]
+    u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
+    keep = np.logical_and(u > 0, u < 1)
+    keep = np.logical_and(
+        keep,
+        np.logical_and(v > 0, v < 1),
+    )
+    u = u[keep]
+    v = v[keep]
+    xy = np.stack([u*shape[0], v*shape[1]], axis=1).T
+    fig, ax = plt.subplots()
+    ax.plot(xy[0, :], xy[1, :], '.r')
+    ax.matshow(
+        data_dict['A'], 
+        cmap='gray', norm=None, 
+        vmax=10, origin='lower',
+    )
+    plt.show()
+    exit()
+
+    edge_ind1 = shape[0]//2
+    edge_ind2 = shape[0] + shape[1]//2
+    ecef_edge1 = ecef_edge[:, edge_ind1]
+    ecef_edge1 = np.hstack([ecef_edge1, np.ones_like(ecef_edge1)])
+    ecef_edge1.shape = (6, 1)
+    ecef_edge2 = ecef_edge[:, edge_ind2]
+    ecef_edge2 = np.hstack([ecef_edge2, np.ones_like(ecef_edge2)])
+    ecef_edge2.shape = (6, 1)
+
+    nu_samples = 300
+
+    orb = pyorb.Orbit(
+        M0=pyorb.M_earth, 
+        m=0, 
+        num=nu_samples, 
+        epoch=epoch, 
+        radians=True,
+        auto_update = False,
+        direct_update = False,
+    )
+    orb.a = 7.5e6
+    orb.e = 0
+    orb.i = 0
+    orb.omega = 0
+    orb.Omega = 0
+    orb.anom = np.linspace(0.0, np.pi*2, nu_samples)
+    ecef_st = np.reshape(knt_st.ecef, (3, 1))
+
+    teme_st = sorts.frames.convert(
+        epoch, 
+        np.vstack([ecef_st, np.ones_like(ecef_st)]),
+        in_frame='ITRS', 
+        out_frame='TEME',
+    )[:3, 0]
+
+    teme_edge1 = sorts.frames.convert(
+        epoch, 
+        ecef_edge1,
+        in_frame='ITRS', 
+        out_frame='TEME',
+    )[:3, 0]
+    teme_edge2 = sorts.frames.convert(
+        epoch, 
+        ecef_edge2,
+        in_frame='ITRS', 
+        out_frame='TEME',
+    )[:3, 0]
+
+    def get_anom_inds(x):
+        orb0 = orb.copy()
+        orb0.i = x[0]
+        orb0.Omega = x[1]
+        orb0.calculate_cartesian()
+        st_teme_orb = orb0.cartesian[:3, :] - teme_st[:, None]
+        min1 = np.argmin(pyant.coordinates.vector_angle(teme_edge1, st_teme_orb))
+        min2 = np.argmin(pyant.coordinates.vector_angle(teme_edge2, st_teme_orb))
+        return min1, min2
+
+    def optim_func(x):
+        orb0 = orb.copy()
+        orb0.i = x[0]
+        orb0.Omega = x[1]
+        orb0.calculate_cartesian()
+        st_teme_orb = orb0.cartesian[:3, :] - teme_st[:, None]
+        min1 = np.min(pyant.coordinates.vector_angle(teme_edge1, st_teme_orb))
+        min2 = np.min(pyant.coordinates.vector_angle(teme_edge2, st_teme_orb))
+        ang = min1 + min2
+        return ang
+
+    min_res = minimize(
+        optim_func, np.array([np.pi/2, np.pi/4]), 
+        method='Nelder-Mead',
+    )
+    print(min_res)
+
+    min1, min2 = get_anom_inds(min_res.x)
+
+    orb.i = min_res.x[0]
+    orb.Omega = min_res.x[1]
+    orb.calculate_cartesian()
+
+    ecef_orb = sorts.frames.convert(
+        epoch, 
+        orb.cartesian,
+        in_frame='TEME', 
+        out_frame='ITRS',
+    )[:3, :]
+
+    fig = plt.figure(figsize=(15, 15))
+    ax1 = fig.add_subplot(111, projection='3d')
+    sorts.plotting.grid_earth(ax1)
+    ax1.plot(knt_st.ecef[0], knt_st.ecef[1], knt_st.ecef[2], '.r')
+    ax1.plot(
+        [knt_st.ecef[0], knt_st.ecef[0] + ecef_edge1[0, 0]*700e3], 
+        [knt_st.ecef[1], knt_st.ecef[1] + ecef_edge1[1, 0]*700e3], 
+        [knt_st.ecef[2], knt_st.ecef[2] + ecef_edge1[2, 0]*700e3], 
+        '-g',
+    )
+    ax1.plot(
+        [knt_st.ecef[0], knt_st.ecef[0] + ecef_edge2[0, 0]*700e3], 
+        [knt_st.ecef[1], knt_st.ecef[1] + ecef_edge2[1, 0]*700e3], 
+        [knt_st.ecef[2], knt_st.ecef[2] + ecef_edge2[2, 0]*700e3], 
+        '-g',
+    )
+    ax1.plot(ecef_orb[0, :], ecef_orb[1, :], ecef_orb[2, :], '-b')
+
+    orb.anom = np.linspace(orb.anom[min1], orb.anom[min2], nu_samples)
+    orb.calculate_cartesian()
+    ecef_orb = sorts.frames.convert(
+        epoch, 
+        orb.cartesian,
+        in_frame='TEME', 
+        out_frame='ITRS',
+    )[:3, :]
+
+    local_cart = knt_st.enu(ecef_orb)
+    local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
+    local_sph[1, :] = np.pi/2 - local_sph[1, :]
+
+    u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
+    keep = np.logical_and(u > 0, u < 1)
+    keep = np.logical_and(
+        keep,
+        np.logical_and(v > 0, v < 1),
+    )
+    u = u[keep]
+    v = v[keep]
+    xy = np.stack([u*shape[0], v*shape[1]], axis=1).T
+    fig, ax = plt.subplots()
+    ax.plot(xy[0, :], xy[1, :], '.r')
+    ax.matshow(
+        data_dict['A'], 
+        cmap='gray', norm=None, 
+        vmax=10, origin='lower',
+    )
+    plt.show()
+
+
+    # fig, ax = plt.subplots()
+
+    # for edge_ind2 in range(shape[0] + 1, len(az_edge), 100):
+    #     edge_ind1 = shape[0]//2
+    #     # edge_ind2 = 2000
+
+    #     r = 1000e3
+    #     # dt = 250.0
+
+    #     ecef_edge1 = ecef_edge[:, edge_ind1]*r + knt_st.ecef
+    #     ecef_edge1 = np.hstack([ecef_edge1, np.ones_like(ecef_edge1)])
+    #     ecef_edge1.shape = (6, 1)
+    #     ecef_edge2 = ecef_edge[:, edge_ind2]*r + knt_st.ecef
+    #     ecef_edge2 = np.hstack([ecef_edge2, np.ones_like(ecef_edge2)])
+    #     ecef_edge2.shape = (6, 1)
+
+    #     # fig = plt.figure(figsize=(15, 15))
+    #     # ax1 = fig.add_subplot(111, projection='3d')
+    #     # sorts.plotting.grid_earth(ax1)
+    #     # ax1.plot(knt_st.ecef[0], knt_st.ecef[1], knt_st.ecef[2], '.r')
+    #     # ax1.plot(
+    #     #     [knt_st.ecef[0], ecef_edge1[0, 0]], 
+    #     #     [knt_st.ecef[1], ecef_edge1[1, 0]], 
+    #     #     [knt_st.ecef[2], ecef_edge1[2, 0]], 
+    #     #     '-g',
+    #     # )
+    #     # ax1.plot(
+    #     #     [knt_st.ecef[0], ecef_edge2[0, 0]], 
+    #     #     [knt_st.ecef[1], ecef_edge2[1, 0]], 
+    #     #     [knt_st.ecef[2], ecef_edge2[2, 0]], 
+    #     #     '-g',
+    #     # )
+
+    #     teme_edge1 = sorts.frames.convert(
+    #         epoch, 
+    #         ecef_edge1,
+    #         in_frame='ITRS', 
+    #         out_frame='TEME',
+    #     )[:3, 0]
+    #     teme_edge2 = sorts.frames.convert(
+    #         epoch, 
+    #         ecef_edge2,
+    #         in_frame='ITRS', 
+    #         out_frame='TEME',
+    #     )[:3, 0]
+
+    #     dt = np.linalg.norm(teme_edge1 - teme_edge2)/7.5e3
+        
+    #     orb = orbit_from_points(teme_edge1, teme_edge2, dt)
+    #     orb = orb[0]
+    #     print(orb)
+
+    #     ecef = prop.propagate(np.arange(0, dt, 0.5), orb, epoch=epoch)
+
+    #     # ax1.plot(ecef[0, :], ecef[1, :], ecef[2, :], '-b')
+    #     # plt.show()
+
+    #     local_cart = knt_st.enu(ecef[:3, :])
+    #     local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
+    #     local_sph[1, :] = np.pi/2 - local_sph[1, :]
+
+    #     u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
+    #     keep = np.logical_and(u > 0, u < 1)
+    #     keep = np.logical_and(
+    #         keep,
+    #         np.logical_and(v > 0, v < 1),
+    #     )
+    #     u = u[keep]
+    #     v = v[keep]
+    #     xy = np.stack([u*shape[0], v*shape[1]], axis=1).T
+        
+    #     ax.plot(xy[0, :], xy[1, :], '.r')
+    # ax.matshow(
+    #     data_dict['A'], 
+    #     cmap='gray', norm=None, 
+    #     vmax=10, origin='lower',
+    # )
+    # plt.show()
+
+    # exit()
+
+    # local_sph[1, :] = np.pi/2 - local_sph[1, :]
+
     # orb = pyorb.Orbit(
     #     M0=pyorb.M_earth, m=0, 
     #     num=1, epoch=epoch, 
@@ -292,40 +614,40 @@ def detect_trace(args):
     # orb.omega = 0
 
     # a_samp = np.linspace(6.7e6, 10e6, num=20)
-    inc_samp = np.arange(60, 150, 1, dtype=np.float64)
-    Omega_samp = np.arange(0, 360, 2.5, dtype=np.float64)
-    nu_samp = np.arange(0, 360, 2.5, dtype=np.float64)
-    inc, Omega, nu = np.meshgrid(
-        inc_samp,
-        Omega_samp,
-        nu_samp,
-        indexing='ij',
-    )
-    samples = inc.size
-    samples_shape = inc.shape
+    # inc_samp = np.arange(60, 150, 1, dtype=np.float64)
+    # Omega_samp = np.arange(0, 360, 2.5, dtype=np.float64)
+    # nu_samp = np.arange(0, 360, 2.5, dtype=np.float64)
+    # inc, Omega, nu = np.meshgrid(
+    #     inc_samp,
+    #     Omega_samp,
+    #     nu_samp,
+    #     indexing='ij',
+    # )
+    # samples = inc.size
+    # samples_shape = inc.shape
 
-    print(samples, samples_shape)
+    # print(samples, samples_shape)
 
-    inc = np.reshape(inc, (samples, ))
-    Omega = np.reshape(Omega, (samples, ))
-    nu = np.reshape(nu, (samples, ))
+    # inc = np.reshape(inc, (samples, ))
+    # Omega = np.reshape(Omega, (samples, ))
+    # nu = np.reshape(nu, (samples, ))
 
-    orb = pyorb.Orbit(
-        M0=pyorb.M_earth, 
-        m=0, 
-        num=samples, 
-        epoch=epoch, 
-        radians=False,
-        auto_update = False,
-        direct_update = False,
-    )
-    orb.a = 7e6
-    orb.e = 0
-    orb.i = inc
-    orb.omega = 0
-    orb.Omega = Omega
-    orb.anom = nu
-    orb.calculate_cartesian()
+    # orb = pyorb.Orbit(
+    #     M0=pyorb.M_earth, 
+    #     m=0, 
+    #     num=samples, 
+    #     epoch=epoch, 
+    #     radians=False,
+    #     auto_update = False,
+    #     direct_update = False,
+    # )
+    # orb.a = 7e6
+    # orb.e = 0
+    # orb.i = inc
+    # orb.omega = 0
+    # orb.Omega = Omega
+    # orb.anom = nu
+    # orb.calculate_cartesian()
 
     # ang = angle_to_pointing(orb, st, pointing, epoch)
 
@@ -357,36 +679,36 @@ def detect_trace(args):
     # plt.show()
     # exit()
 
-    ecef = sorts.frames.convert(
-        epoch, 
-        orb.cartesian, 
-        in_frame='TEME', 
-        out_frame='ITRS',
-    )
-    local_cart = knt_st.enu(ecef[:3, :])
-    local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
-    local_sph[1, :] = np.pi/2 - local_sph[1, :]
+    # ecef = sorts.frames.convert(
+    #     epoch, 
+    #     orb.cartesian, 
+    #     in_frame='TEME', 
+    #     out_frame='ITRS',
+    # )
+    # local_cart = knt_st.enu(ecef[:3, :])
+    # local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
+    # local_sph[1, :] = np.pi/2 - local_sph[1, :]
 
-    u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
-    keep = np.logical_and(u > 0, u < 1)
-    keep = np.logical_and(
-        keep,
-        np.logical_and(v > 0, v < 1),
-    )
-    u = u[keep]
-    v = v[keep]
-    xy = np.stack([u*shape[0], v*shape[1]], axis=1)
+    # u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
+    # keep = np.logical_and(u > 0, u < 1)
+    # keep = np.logical_and(
+    #     keep,
+    #     np.logical_and(v > 0, v < 1),
+    # )
+    # u = u[keep]
+    # v = v[keep]
+    # xy = np.stack([u*shape[0], v*shape[1]], axis=1).T
 
-    print(xy.shape[1])
+    # print(xy.shape[1])
 
-    fig, ax = plt.subplots()
-    ax.plot(xy[0, :], xy[1, :], '.r')
-    ax.matshow(
-        data_dict['A'], 
-        cmap='gray', norm=None, 
-        vmax=10, origin='lower',
-    )
-    plt.show()
+    # fig, ax = plt.subplots()
+    # ax.plot(xy[0, :], xy[1, :], '.r')
+    # ax.matshow(
+    #     data_dict['A'], 
+    #     cmap='gray', norm=None, 
+    #     vmax=10, origin='lower',
+    # )
+    # plt.show()
 
     # # orb0.i = orb.i + p[0]
     # # orb0.anom = orb.anom + p[1]
