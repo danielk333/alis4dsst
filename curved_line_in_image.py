@@ -328,14 +328,6 @@ def detect_trace(args):
         imsize=shape,
     )
 
-    u_edge0, v_edge0 = camera.project_directions(
-        az_edge, 
-        ze_edge, 
-    )
-    print(u_edge - u_edge0)
-    print(v_edge - v_edge0)
-    exit()
-
     local_sph_edge = np.vstack([
         az_edge, 
         np.pi/2 - ze_edge, 
@@ -362,164 +354,230 @@ def detect_trace(args):
     # )
     # plt.show()
 
-    local_cart = knt_st.enu(ecef_edge + knt_st.ecef[:, None])
-    local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
-    local_sph[1, :] = np.pi/2 - local_sph[1, :]
-    u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
-    keep = np.logical_and(u > 0, u < 1)
-    keep = np.logical_and(
-        keep,
-        np.logical_and(v > 0, v < 1),
-    )
-    u = u[keep]
-    v = v[keep]
-    xy = np.stack([u*shape[0], v*shape[1]], axis=1).T
+    # local_cart = knt_st.enu(ecef_edge + knt_st.ecef[:, None])
+    # local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
+    # local_sph[1, :] = np.pi/2 - local_sph[1, :]
+    # u, v = camera.project_directions(
+    #     local_sph[0, :], 
+    #     local_sph[1, :], 
+    #     imsize=shape,
+    # )
+    # keep = np.logical_and(u > 0, u < shape[0])
+    # keep = np.logical_and(
+    #     keep,
+    #     np.logical_and(v > 0, v < shape[1]),
+    # )
+    # u = u[keep]
+    # v = v[keep]
+    # xy = np.stack([u, v], axis=1).T
+    # fig, ax = plt.subplots()
+    # ax.plot(xy[0, :], xy[1, :], '.r')
+    # ax.matshow(
+    #     data_dict['A'], 
+    #     cmap='gray', norm=None, 
+    #     vmax=10, origin='lower',
+    # )
+    # plt.show()
+
+    metrics = np.zeros((ecef_edge.shape[1], ecef_edge.shape[1]))
+    range_i = list(range(shape[0]//20))
+    range_j = list(range(shape[0] + shape[1], shape[0] + shape[1] + shape[0]//20))
+    RI, RJ = np.meshgrid(range_i, range_j)
+    pbar = tqdm(total=len(range_i)*len(range_j))
+    orbs = metrics = np.zeros((ecef_edge.shape[1], ecef_edge.shape[1], 4))
+    for i_e in range_i:
+        for j_e in range_j:
+
+            # edge_ind1 = shape[0]//2
+            # edge_ind2 = shape[0] + shape[1]//2
+
+            ecef_edge1 = ecef_edge[:, i_e]
+            ecef_edge1 = np.hstack([ecef_edge1, np.ones_like(ecef_edge1)])
+            ecef_edge1.shape = (6, 1)
+            ecef_edge2 = ecef_edge[:, j_e]
+            ecef_edge2 = np.hstack([ecef_edge2, np.ones_like(ecef_edge2)])
+            ecef_edge2.shape = (6, 1)
+
+            nu_samples = 300
+
+            orb = pyorb.Orbit(
+                M0=pyorb.M_earth, 
+                m=0, 
+                num=nu_samples, 
+                epoch=epoch, 
+                radians=True,
+                auto_update = False,
+                direct_update = False,
+            )
+            orb.a = 7.5e6
+            orb.e = 0
+            orb.i = 0
+            orb.omega = 0
+            orb.Omega = 0
+            orb.anom = np.linspace(0.0, np.pi*2, nu_samples)
+            ecef_st = np.reshape(knt_st.ecef, (3, 1))
+
+            teme_st = sorts.frames.convert(
+                epoch, 
+                np.vstack([ecef_st, np.ones_like(ecef_st)]),
+                in_frame='ITRS', 
+                out_frame='TEME',
+            )[:3, 0]
+
+            teme_edge1 = sorts.frames.convert(
+                epoch, 
+                ecef_edge1,
+                in_frame='ITRS', 
+                out_frame='TEME',
+            )[:3, 0]
+            teme_edge2 = sorts.frames.convert(
+                epoch, 
+                ecef_edge2,
+                in_frame='ITRS', 
+                out_frame='TEME',
+            )[:3, 0]
+
+            def get_anom_inds(x):
+                orb0 = orb.copy()
+                orb0.i = x[0]
+                orb0.Omega = x[1]
+                orb0.calculate_cartesian()
+                st_teme_orb = orb0.cartesian[:3, :] - teme_st[:, None]
+                min1 = np.argmin(pyant.coordinates.vector_angle(teme_edge1, st_teme_orb))
+                min2 = np.argmin(pyant.coordinates.vector_angle(teme_edge2, st_teme_orb))
+                return min1, min2
+
+            def optim_func(x):
+                orb0 = orb.copy()
+                orb0.i = x[0]
+                orb0.Omega = x[1]
+                orb0.calculate_cartesian()
+                st_teme_orb = orb0.cartesian[:3, :] - teme_st[:, None]
+                min1 = np.min(pyant.coordinates.vector_angle(teme_edge1, st_teme_orb))
+                min2 = np.min(pyant.coordinates.vector_angle(teme_edge2, st_teme_orb))
+                ang = min1 + min2
+                return ang
+
+            min_res = minimize(
+                optim_func, np.array([np.pi/2, np.pi/4]), 
+                method='Nelder-Mead',
+            )
+            # print(min_res)
+
+            min1, min2 = get_anom_inds(min_res.x)
+
+            orbs[i_e, j_e, 0] = min1
+            orbs[i_e, j_e, 1] = min2
+            orbs[i_e, j_e, 2] = min_res.x[0]
+            orbs[i_e, j_e, 3] = min_res.x[1]
+
+            orb.i = min_res.x[0]
+            orb.Omega = min_res.x[1]
+            orb.calculate_cartesian()
+
+            ecef_orb = sorts.frames.convert(
+                epoch, 
+                orb.cartesian,
+                in_frame='TEME', 
+                out_frame='ITRS',
+            )[:3, :]
+
+            # fig = plt.figure(figsize=(15, 15))
+            # ax1 = fig.add_subplot(111, projection='3d')
+            # sorts.plotting.grid_earth(ax1)
+            # ax1.plot(knt_st.ecef[0], knt_st.ecef[1], knt_st.ecef[2], '.r')
+            # ax1.plot(
+            #     [knt_st.ecef[0], knt_st.ecef[0] + ecef_edge1[0, 0]*700e3], 
+            #     [knt_st.ecef[1], knt_st.ecef[1] + ecef_edge1[1, 0]*700e3], 
+            #     [knt_st.ecef[2], knt_st.ecef[2] + ecef_edge1[2, 0]*700e3], 
+            #     '-g',
+            # )
+            # ax1.plot(
+            #     [knt_st.ecef[0], knt_st.ecef[0] + ecef_edge2[0, 0]*700e3], 
+            #     [knt_st.ecef[1], knt_st.ecef[1] + ecef_edge2[1, 0]*700e3], 
+            #     [knt_st.ecef[2], knt_st.ecef[2] + ecef_edge2[2, 0]*700e3], 
+            #     '-g',
+            # )
+            # ax1.plot(ecef_orb[0, :], ecef_orb[1, :], ecef_orb[2, :], '-b')
+
+            orb.anom = np.linspace(orb.anom[min1], orb.anom[min2], nu_samples)
+            orb.calculate_cartesian()
+            ecef_orb = sorts.frames.convert(
+                epoch, 
+                orb.cartesian,
+                in_frame='TEME', 
+                out_frame='ITRS',
+            )[:3, :]
+
+            local_cart = knt_st.enu(ecef_orb)
+            local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
+            local_sph[1, :] = np.pi/2 - local_sph[1, :]
+
+            u, v = camera.project_directions(
+                local_sph[0, :], 
+                local_sph[1, :],
+                imsize=shape,
+            )
+            keep = np.logical_and(u > 2, u < shape[0] - 2)
+            keep = np.logical_and(
+                keep,
+                np.logical_and(v > 2, v < shape[1] - 2),
+            )
+            u = np.round(u[keep]).astype(np.int64)
+            v = np.round(v[keep]).astype(np.int64)
+            im_inds = np.unique(np.stack([
+                A_index[u, v],
+                A_index[u + 1, v],
+                A_index[u, v + 1],
+                A_index[u - 1, v],
+                A_index[u, v - 1],
+            ]))
+
+            metrics[i_e, j_e] = np.sum(A[im_inds])
+
+            A_tmp = A.copy()
+            A_tmp[im_inds] = 20
+            A_tmp = A_tmp.reshape(*shape)
+
+            pbar.update(1)
+
+    pbar.close()
+
+    max_metric = np.argmax(metrics)
+
     fig, ax = plt.subplots()
-    ax.plot(xy[0, :], xy[1, :], '.r')
-    ax.matshow(
-        data_dict['A'], 
-        cmap='gray', norm=None, 
-        vmax=10, origin='lower',
-    )
+    ax.pcolormesh(range_i, range_j, metrics)
+
+    # xy = np.stack([u, v], axis=1).T
+    # fig, ax = plt.subplots()
+    # ax.plot(xy[0, :], xy[1, :], '.r')
+    # ax.matshow(
+    #     data_dict['A'].T, 
+    #     cmap='gray', norm=None, 
+    #     vmax=10, origin='lower',
+    # )
+    # ax.set_title(f'Metric={metric}')
     plt.show()
-    exit()
 
-    edge_ind1 = shape[0]//2
-    edge_ind2 = shape[0] + shape[1]//2
-    ecef_edge1 = ecef_edge[:, edge_ind1]
-    ecef_edge1 = np.hstack([ecef_edge1, np.ones_like(ecef_edge1)])
-    ecef_edge1.shape = (6, 1)
-    ecef_edge2 = ecef_edge[:, edge_ind2]
-    ecef_edge2 = np.hstack([ecef_edge2, np.ones_like(ecef_edge2)])
-    ecef_edge2.shape = (6, 1)
+    # xy = np.stack([u, v], axis=1).T
+    # fig, ax = plt.subplots()
+    # ax.matshow(
+    #     A_tmp, 
+    #     cmap='gray', norm=None, 
+    #     vmax=10, origin='lower',
+    # )
+    # ax.set_title(f'Metric={metric}')
 
-    nu_samples = 300
-
-    orb = pyorb.Orbit(
-        M0=pyorb.M_earth, 
-        m=0, 
-        num=nu_samples, 
-        epoch=epoch, 
-        radians=True,
-        auto_update = False,
-        direct_update = False,
-    )
-    orb.a = 7.5e6
-    orb.e = 0
-    orb.i = 0
-    orb.omega = 0
-    orb.Omega = 0
-    orb.anom = np.linspace(0.0, np.pi*2, nu_samples)
-    ecef_st = np.reshape(knt_st.ecef, (3, 1))
-
-    teme_st = sorts.frames.convert(
-        epoch, 
-        np.vstack([ecef_st, np.ones_like(ecef_st)]),
-        in_frame='ITRS', 
-        out_frame='TEME',
-    )[:3, 0]
-
-    teme_edge1 = sorts.frames.convert(
-        epoch, 
-        ecef_edge1,
-        in_frame='ITRS', 
-        out_frame='TEME',
-    )[:3, 0]
-    teme_edge2 = sorts.frames.convert(
-        epoch, 
-        ecef_edge2,
-        in_frame='ITRS', 
-        out_frame='TEME',
-    )[:3, 0]
-
-    def get_anom_inds(x):
-        orb0 = orb.copy()
-        orb0.i = x[0]
-        orb0.Omega = x[1]
-        orb0.calculate_cartesian()
-        st_teme_orb = orb0.cartesian[:3, :] - teme_st[:, None]
-        min1 = np.argmin(pyant.coordinates.vector_angle(teme_edge1, st_teme_orb))
-        min2 = np.argmin(pyant.coordinates.vector_angle(teme_edge2, st_teme_orb))
-        return min1, min2
-
-    def optim_func(x):
-        orb0 = orb.copy()
-        orb0.i = x[0]
-        orb0.Omega = x[1]
-        orb0.calculate_cartesian()
-        st_teme_orb = orb0.cartesian[:3, :] - teme_st[:, None]
-        min1 = np.min(pyant.coordinates.vector_angle(teme_edge1, st_teme_orb))
-        min2 = np.min(pyant.coordinates.vector_angle(teme_edge2, st_teme_orb))
-        ang = min1 + min2
-        return ang
-
-    min_res = minimize(
-        optim_func, np.array([np.pi/2, np.pi/4]), 
-        method='Nelder-Mead',
-    )
-    print(min_res)
-
-    min1, min2 = get_anom_inds(min_res.x)
-
-    orb.i = min_res.x[0]
-    orb.Omega = min_res.x[1]
-    orb.calculate_cartesian()
-
-    ecef_orb = sorts.frames.convert(
-        epoch, 
-        orb.cartesian,
-        in_frame='TEME', 
-        out_frame='ITRS',
-    )[:3, :]
-
-    fig = plt.figure(figsize=(15, 15))
-    ax1 = fig.add_subplot(111, projection='3d')
-    sorts.plotting.grid_earth(ax1)
-    ax1.plot(knt_st.ecef[0], knt_st.ecef[1], knt_st.ecef[2], '.r')
-    ax1.plot(
-        [knt_st.ecef[0], knt_st.ecef[0] + ecef_edge1[0, 0]*700e3], 
-        [knt_st.ecef[1], knt_st.ecef[1] + ecef_edge1[1, 0]*700e3], 
-        [knt_st.ecef[2], knt_st.ecef[2] + ecef_edge1[2, 0]*700e3], 
-        '-g',
-    )
-    ax1.plot(
-        [knt_st.ecef[0], knt_st.ecef[0] + ecef_edge2[0, 0]*700e3], 
-        [knt_st.ecef[1], knt_st.ecef[1] + ecef_edge2[1, 0]*700e3], 
-        [knt_st.ecef[2], knt_st.ecef[2] + ecef_edge2[2, 0]*700e3], 
-        '-g',
-    )
-    ax1.plot(ecef_orb[0, :], ecef_orb[1, :], ecef_orb[2, :], '-b')
-
-    orb.anom = np.linspace(orb.anom[min1], orb.anom[min2], nu_samples)
-    orb.calculate_cartesian()
-    ecef_orb = sorts.frames.convert(
-        epoch, 
-        orb.cartesian,
-        in_frame='TEME', 
-        out_frame='ITRS',
-    )[:3, :]
-
-    local_cart = knt_st.enu(ecef_orb)
-    local_sph = pyant.coordinates.cart_to_sph(local_cart, radians=True)
-    local_sph[1, :] = np.pi/2 - local_sph[1, :]
-
-    u, v = camera.project_directions(local_sph[0, :], local_sph[1, :])
-    keep = np.logical_and(u > 0, u < 1)
-    keep = np.logical_and(
-        keep,
-        np.logical_and(v > 0, v < 1),
-    )
-    u = u[keep]
-    v = v[keep]
-    xy = np.stack([u*shape[0], v*shape[1]], axis=1).T
-    fig, ax = plt.subplots()
-    ax.plot(xy[0, :], xy[1, :], '.r')
-    ax.matshow(
-        data_dict['A'], 
-        cmap='gray', norm=None, 
-        vmax=10, origin='lower',
-    )
-    plt.show()
+    # xy = np.stack([u, v], axis=1).T
+    # fig, ax = plt.subplots()
+    # ax.plot(xy[0, :], xy[1, :], '.r')
+    # ax.matshow(
+    #     data_dict['A'].T, 
+    #     cmap='gray', norm=None, 
+    #     vmax=10, origin='lower',
+    # )
+    # ax.set_title(f'Metric={metric}')
+    # plt.show()
 
 
     # fig, ax = plt.subplots()
