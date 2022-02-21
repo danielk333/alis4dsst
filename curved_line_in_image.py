@@ -379,14 +379,17 @@ def detect_trace(args):
     # )
     # plt.show()
 
-    metrics = np.zeros((ecef_edge.shape[1], ecef_edge.shape[1]))
-    range_i = list(range(shape[0]//20))
-    range_j = list(range(shape[0] + shape[1], shape[0] + shape[1] + shape[0]//20))
-    RI, RJ = np.meshgrid(range_i, range_j)
+    fig, ax = plt.subplots()
+
+    range_i = [ecef_edge.shape[1] - 175]
+    range_j = list(range(shape[0] + 300, shape[0] + 500, 1))
+
+    metrics = np.zeros((len(range_i), len(range_j)))
+    orbs = np.zeros((len(range_i), len(range_j), 4))
+
     pbar = tqdm(total=len(range_i)*len(range_j))
-    orbs = metrics = np.zeros((ecef_edge.shape[1], ecef_edge.shape[1], 4))
-    for i_e in range_i:
-        for j_e in range_j:
+    for i_i, i_e in enumerate(range_i):
+        for j_i, j_e in enumerate(range_j):
 
             # edge_ind1 = shape[0]//2
             # edge_ind2 = shape[0] + shape[1]//2
@@ -466,10 +469,10 @@ def detect_trace(args):
 
             min1, min2 = get_anom_inds(min_res.x)
 
-            orbs[i_e, j_e, 0] = min1
-            orbs[i_e, j_e, 1] = min2
-            orbs[i_e, j_e, 2] = min_res.x[0]
-            orbs[i_e, j_e, 3] = min_res.x[1]
+            orbs[i_i, j_i, 0] = min1
+            orbs[i_i, j_i, 1] = min2
+            orbs[i_i, j_i, 2] = min_res.x[0]
+            orbs[i_i, j_i, 3] = min_res.x[1]
 
             orb.i = min_res.x[0]
             orb.Omega = min_res.x[1]
@@ -525,6 +528,9 @@ def detect_trace(args):
             )
             u = np.round(u[keep]).astype(np.int64)
             v = np.round(v[keep]).astype(np.int64)
+
+            ax.plot(u, v, '.r')
+
             im_inds = np.unique(np.stack([
                 A_index[u, v],
                 A_index[u + 1, v],
@@ -533,7 +539,7 @@ def detect_trace(args):
                 A_index[u, v - 1],
             ]))
 
-            metrics[i_e, j_e] = np.sum(A[im_inds])
+            metrics[i_i, j_i] = np.sum(A[im_inds])
 
             A_tmp = A.copy()
             A_tmp[im_inds] = 20
@@ -545,18 +551,15 @@ def detect_trace(args):
 
     max_metric = np.argmax(metrics)
 
-    fig, ax = plt.subplots()
-    ax.pcolormesh(range_i, range_j, metrics)
+    ax.matshow(
+        data_dict['A'].T, 
+        cmap='gray', norm=None, 
+        vmax=10, origin='lower',
+    )
 
-    # xy = np.stack([u, v], axis=1).T
-    # fig, ax = plt.subplots()
-    # ax.plot(xy[0, :], xy[1, :], '.r')
-    # ax.matshow(
-    #     data_dict['A'].T, 
-    #     cmap='gray', norm=None, 
-    #     vmax=10, origin='lower',
-    # )
-    # ax.set_title(f'Metric={metric}')
+    fig, ax = plt.subplots()
+    ax.plot(np.array(range_j), metrics.flatten())
+
     plt.show()
 
     # xy = np.stack([u, v], axis=1).T
