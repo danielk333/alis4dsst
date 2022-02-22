@@ -1,2 +1,6 @@
 git+https://github.com/danielk333/pyod.git@0.2#egg=pyod
+git+https://github.com/danielk333/pyant
+git+https://github.com/danielk333/pyorb
 git+https://github.com/danielk333/SORTS.git@4.0#egg=sorts
+git+https://gitlab.irf.se/alis4d/aidapy
+scikit-image
