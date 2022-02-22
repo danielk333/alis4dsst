@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+'''
+
+Example command:
+
+./curved_line_in_image.py detect -m radon -c -f 400 ~/data/alis4d/{2020-04-01T19.49.00K.fits,optpar_cam9_m3_f3_200401_200000.mat}
+
+'''
 from pathlib import Path
 import argparse
 import re
