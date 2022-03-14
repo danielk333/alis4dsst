@@ -157,7 +157,7 @@ def get_Camera(optpar, optmod):
     )
     if optmod == 3:
         camera.optical_transfer = aida.camera.model.alis3d
-        camera.inverse_optical_transfer = aida.camera.invmodel.inv_alis3d
+        camera.inverse_optical_transfer = aida.camera.inv_model.inv_alis3d
     return camera
 
 
@@ -262,6 +262,7 @@ def detect_trace(args):
         mean_threshold=4,
     )
     A = data_dict['A'].copy()
+    img, _ = read_ALIS4D(args.path)
 
     file = Path(args.optpar)
     optpar, optmod = read_optpar(file)
@@ -305,7 +306,7 @@ def detect_trace(args):
     A[0, :] = 0
     A[-1, :] = 0
 
-    if args.method == 'radon':
+    if args.method.startswith('radon'):
         theta = np.linspace(0., 180., max(A.shape), endpoint=False)
         sinogram = radon(A, theta=theta)
 
@@ -328,6 +329,8 @@ def detect_trace(args):
         select = np.array(select)
         dists = dists[select]
         angles = angles[select]
+        slopes = np.tan(np.pi*0.5 - angles)
+        points = np.empty((2, len(slopes)), dtype=np.float64)
         xi = xi[select]
         yi = yi[select]
 
@@ -336,12 +339,14 @@ def detect_trace(args):
         ax1.set_title('Image')
         ax1.imshow(A, origin='lower', cmap='gray', vmax=10)
 
-        for angle, dist in zip(angles, dists):
+        for lid, (angle, dist) in enumerate(zip(angles, dists)):
             xy0 = dist*np.array([
                 np.cos(angle), 
                 -np.sin(angle),  # -y, Radon transform specific
             ])
             (x0, y0) = xy0 + np.array(A.shape)//2
+            points[0, lid] = x0
+            points[1, lid] = y0
             ax1.axline((x0, y0), slope=np.tan(np.pi*0.5 - angle))
             ax1.plot(x0, y0, '.r')
             ax1.plot([A.shape[0]//2, x0], [A.shape[1]//2, y0], '--g')
@@ -354,12 +359,13 @@ def detect_trace(args):
 
         fig.tight_layout()
 
-        plt.show()
-
-    elif args.method == 'hough':
+    elif args.method.startswith('hough'):
         theta = np.linspace(-np.pi / 2, np.pi / 2, max(A.shape), endpoint=False)
         h, h_theta, d = hough_line(A, theta=theta)
         accum, angles, dists = hough_line_peaks(h, h_theta, d, num_peaks=peaks)
+
+        slopes = np.tan(angles + np.pi/2)
+        points = np.empty((2, len(slopes)), dtype=np.float64)
 
         hough_map = [-90, 90, d[-1], d[0]]
 
@@ -368,8 +374,10 @@ def detect_trace(args):
         ax1.imshow(A, cmap='gray', vmax=10)
         ax1.set_title('Image')
 
-        for angle, dist in zip(angles, dists):
+        for lid, (angle, dist) in enumerate(zip(angles, dists)):
             (x0, y0) = dist*np.array([np.cos(angle), np.sin(angle)])
+            points[0, lid] = x0
+            points[1, lid] = y0
             ax1.axline((x0, y0), slope=np.tan(angle + np.pi/2))
             ax1.plot(x0, y0, '.r')
             ax1.plot([0, x0], [0, y0], '--g')
@@ -383,9 +391,94 @@ def detect_trace(args):
         ax2.plot(np.degrees(angles), dists, '.r')
 
         plt.tight_layout()
-        plt.show()
 
-    elif args.method == 'orbit':
+    def line_eq(x, slope, point):
+        return slope*(x - point[0]) + point[1]
+
+    def perp_line_eq(x, slope, point):
+        perp_slope = np.tan(np.arctan(slope) + np.pi*0.5)
+        return perp_slope*(x - point[0]) + point[1]
+
+    def set_around_line(img, points, diam, val):
+        xv = np.arange(-diam, diam, dtype=np.int64)
+        yv = np.arange(-diam, diam, dtype=np.int64)
+        xcord, ycord = np.meshgrid(xv, yv)
+        # taxi-cab metric
+        total_mask = np.full(img.shape, False, dtype=bool)
+        local_mask = np.abs(xcord) + np.abs(ycord) <= diam
+        for x, y in points:
+            x, y = int(x), int(y)
+            xid = x + xv
+            yid = y + yv
+            xlo = np.logical_and(xid >= 0, xid < img.shape[0])
+            ylog = np.logical_and(yid >= 0, yid < img.shape[1])
+            xid = xid[xlo]
+            yid = yid[ylog]
+            logrid = np.ix_(xlo, ylog)
+            ixgrid = np.ix_(xid, yid)
+            total_mask[ixgrid] = local_mask[logrid]
+
+        img[total_mask.T] = val
+
+    def sum_around_line(img, points, diam):
+        total = 0
+        xv = np.arange(-diam, diam, dtype=np.int64)
+        yv = np.arange(-diam, diam, dtype=np.int64)
+        xcord, ycord = np.meshgrid(xv, yv)
+        # taxi-cab metric
+        local_mask = np.abs(xcord) + np.abs(ycord) <= diam
+        for x, y in points:
+            x, y = int(x), int(y)
+            xid = x + xv
+            yid = y + yv
+            xlo = np.logical_and(xid >= 0, xid < img.shape[0])
+            ylog = np.logical_and(yid >= 0, yid < img.shape[1])
+            xid = xid[xlo]
+            yid = yid[ylog]
+            logrid = np.ix_(xlo, ylog)
+            ixgrid = np.ix_(xid, yid)
+            local_img = (img.T)[ixgrid]
+
+            total += np.sum(local_img[local_mask[logrid]])
+
+        return total
+
+    if args.method.endswith('normal'):
+
+        # for now just do first
+        slope = 1/slopes[0]
+        point = points[:, 0]
+        diam = 5
+        
+        x_samps = np.arange(100, A.shape[1] - 100)
+        A_sums = np.empty((len(x_samps), ), dtype=np.float64)
+        img_sums = np.empty((len(x_samps), ), dtype=np.float64)
+
+        B = A.copy()
+
+        for ind, x0 in enumerate(x_samps):
+            xv = np.arange(x0 - diam*2, x0 + diam*2, dtype=np.int64)
+            yv = perp_line_eq(xv, slope, point)
+            keep = np.logical_and(yv >= 0, yv < A.shape[1])
+            keep = np.logical_and(keep, xv < A.shape[0])
+            keep = np.logical_and(keep, xv >= 0)
+            xv = xv[keep]
+            yv = yv[keep]
+
+            set_around_line(B, zip(xv, yv), diam, 20)
+            A_sums[ind] = sum_around_line(A, zip(xv, yv), diam)
+            img_sums[ind] = sum_around_line(img[4, :, :], zip(xv, yv), diam)
+
+        fig, ax = plt.subplots()
+        ax.imshow(B, origin='lower')
+
+        fig, ax = plt.subplots()
+        ax.plot(x_samps, A_sums/np.max(A_sums), label='A')
+        ax.plot(x_samps, img_sums/np.max(img_sums), label='img4')
+        ax.legend()
+        
+
+    elif args.method.endswith('orbit'):
 
         shape = A.shape
         A = A.reshape(A.size)
@@ -403,6 +496,12 @@ def detect_trace(args):
             np.full((shape[0],), shape[1] - 1, dtype=np.int64),
             np.arange(shape[1], dtype=np.int64)[::-1],
         ])
+
+        # CHOOSE ONLY ORBITS THAT PASS TROUGH THE RADON POINT, MUCH SMALLER SAMPLE [1d]
+        # WIDTH ALONG ORBIT GIVES T-DIST
+        # PLOT AS EACH PIXEL-SUM AS A FUNCTION A FUNCTION OF TIME FOR EACH FRAME
+        # SEE GAUSSIAN MOVE 
+        assert 0, 'implement this'
 
         az_edge, ze_edge = camera.inv_project_directions(
             u_edge, 
@@ -580,7 +679,7 @@ def detect_trace(args):
         )
         ax2.plot(np.array(range_j), metrics.flatten())
 
-        plt.show()
+    plt.show()
 
 
 def print_fits(args):
@@ -608,9 +707,14 @@ def main(input_args=None):
         help='Get Optical parameters from file',
     )
 
+    choices = []
+    for line_find in ['radon', 'hough']:
+        for line_dist in ['normal', 'orbit']:
+            choices.append(f'{line_find}-{line_dist}')
+
     det_parser.add_argument(
         '-m', '--method', 
-        choices=['radon', 'hough', 'orbit'],
+        choices=choices,
         default='radon',
         help='Method to detect trace',
     )
